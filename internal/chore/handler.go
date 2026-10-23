@@ -2998,6 +2998,10 @@ func (h *Handler) UpdateSubtaskCompletedAt(c *gin.Context) {
 		return
 	}
 
+	if err := h.choreRepo.UpdateChoreFields(c, choreID, map[string]interface{}{}); err != nil {
+		logger.Error("Failed to bump chore sync version after subtask update", "error", err, "choreID", choreID)
+	}
+
 	// Broadcast real-time subtask event
 	if h.realTimeService != nil {
 		broadcaster := h.realTimeService.GetEventBroadcaster()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	nps "donetick.com/core/internal/notifier/service"
 	"donetick.com/core/internal/storage"
 	storageRepo "donetick.com/core/internal/storage/repo"
+	stModel "donetick.com/core/internal/subtask/model"
 	stRepo "donetick.com/core/internal/subtask/repo"
 	tRepo "donetick.com/core/internal/thing/repo"
 	uModel "donetick.com/core/internal/user/model"
@@ -202,6 +204,7 @@ func newEditChoreTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		c.Next()
 	})
 	router.PUT("/chores", h.EditChore)
+	router.PUT("/chores/:id/subtask", h.UpdateSubtaskCompletedAt)
 	return router, db
 }
 
@@ -249,4 +252,29 @@ func TestEditChoreWithoutLabelsV2KeepsLabels(t *testing.T) {
 	recorder = edit(body)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Zero(t, labelCount(), "an empty labelsV2 still removes the labels")
+}
+
+// Subtasks reach offline clients as part of their chore, so completing one has
+// to give the chore a new sync version or delta sync never re-sends it.
+func TestUpdateSubtaskCompletedAtBumpsChoreSyncVersion(t *testing.T) {
+	router, db := newEditChoreTestRouter(t)
+	assignee := 1
+	chore := chModel.Chore{Name: "clean kitchen", FrequencyType: chModel.FrequencyTypeOnce,
+		AssignStrategy: chModel.AssignmentStrategyRandom, AssignedTo: &assignee, CircleID: 1, CreatedBy: 1, IsActive: true}
+	require.NoError(t, db.Create(&chore).Error)
+	subtask := stModel.SubTask{ChoreID: chore.ID, Name: "wipe counters"}
+	require.NoError(t, db.Create(&subtask).Error)
+
+	body, err := json.Marshal(map[string]any{"id": subtask.ID, "choreId": chore.ID, "completedAt": time.Now().UTC()})
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/chores/%d/subtask", chore.ID), bytes.NewReader(body)))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	var updatedSubtask stModel.SubTask
+	require.NoError(t, db.First(&updatedSubtask, subtask.ID).Error)
+	require.NotNil(t, updatedSubtask.CompletedAt)
+	var updatedChore chModel.Chore
+	require.NoError(t, db.First(&updatedChore, chore.ID).Error)
+	require.Greater(t, updatedChore.SyncVersion, chore.SyncVersion)
 }

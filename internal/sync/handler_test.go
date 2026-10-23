@@ -14,6 +14,7 @@ import (
 	lModel "donetick.com/core/internal/label/model"
 	nModel "donetick.com/core/internal/notifier/model"
 	pModel "donetick.com/core/internal/project/model"
+	stModel "donetick.com/core/internal/subtask/model"
 	syncModel "donetick.com/core/internal/sync/model"
 	uModel "donetick.com/core/internal/user/model"
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,7 @@ func newSyncHandlerTest(t *testing.T) (*chRepo.ChoreRepository, *gorm.DB, *gin.E
 		&syncModel.Tombstone{},
 		&pModel.Project{},
 		&pModel.ProjectMember{},
+		&stModel.SubTask{},
 	))
 
 	cfg := &config.Config{}
@@ -137,4 +139,22 @@ func TestGetChangesDropsRevocationSupersededByRegrant(t *testing.T) {
 	require.Len(t, response.Changes.Chores, 1)
 	require.Equal(t, chore.ID, response.Changes.Chores[0].ID)
 	require.Equal(t, chore.SyncVersion, response.Changes.Chores[0].SyncVersion)
+}
+
+// Clients show a chore's subtask progress straight from the synced list, so a
+// chore's subtasks have to come along with it.
+func TestGetChangesIncludesSubtasks(t *testing.T) {
+	_, db, router := newSyncHandlerTest(t)
+	require.NoError(t, db.Create(&cModel.UserCircle{UserID: 2, CircleID: 1, IsActive: true}).Error)
+	chore := &chModel.Chore{ID: 10, Name: "clean kitchen", CircleID: 1, CreatedBy: 2, IsActive: true, SyncVersion: 1}
+	require.NoError(t, db.Create(chore).Error)
+	require.NoError(t, db.Create(&[]stModel.SubTask{
+		{ChoreID: chore.ID, OrderID: 0, Name: "wipe counters"},
+		{ChoreID: chore.ID, OrderID: 1, Name: "mop floor"},
+	}).Error)
+
+	response := getSyncChanges(t, router, 0)
+	require.Len(t, response.Changes.Chores, 1)
+	require.NotNil(t, response.Changes.Chores[0].SubTasks)
+	require.Len(t, *response.Changes.Chores[0].SubTasks, 2)
 }
