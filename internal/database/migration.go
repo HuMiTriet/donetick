@@ -10,7 +10,7 @@ import (
 
 	"donetick.com/core/config"
 	sModel "donetick.com/core/external/payment/model"
-	bmModel "donetick.com/core/internal/beeminder"
+	// bmModel "donetick.com/core/internal/beeminder"
 	bridgeModel "donetick.com/core/internal/bridge"
 	calModel "donetick.com/core/internal/calendar/model"
 	chModel "donetick.com/core/internal/chore/model"
@@ -39,8 +39,8 @@ func Migration(db *gorm.DB) error {
 		cModel.UserCircle{},
 		chModel.ChoreAssignees{},
 		nModel.Notification{},
-		bmModel.BeeminderAccount{},
-		bmModel.BeeminderStakes{},
+		// bmModel.BeeminderAccount{},
+		// bmModel.BeeminderStakes{},
 		uModel.UserPasswordReset{},
 		sModel.StripeCustomer{},
 		sModel.StripeSubscription{},
