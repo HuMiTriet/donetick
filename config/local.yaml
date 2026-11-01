@@ -19,8 +19,8 @@ jwt:
   # Generate one with: openssl rand -base64 32
   # Or use the suggested value from the application startup error message
   secret: "change_this_to_a_secure_random_string_32_characters_long"
-  session_time: 1h        # Token valid for 1 hour (access token lifetime)
-  max_refresh: 24h       # Can refresh for 24 hours from original login (24h)
+  session_time: 1h # Token valid for 1 hour (access token lifetime)
+  max_refresh: 24h # Can refresh for 24 hours from original login (24h)
 server:
   port: 2021
   read_timeout: 10s
@@ -28,17 +28,16 @@ server:
   rate_period: 60s
   rate_limit: 300
   cors_allow_origins:
-    - "http://localhost:5173"
     - "http://localhost:7926"
     # Required for Capacitor apps running on Android and iOS
     - "capacitor://localhost"
-    - "https://localhost"    
-    # Development URLs 
-    - "http://localhost"   
+    - "https://localhost"
+    # Development URLs
+    - "http://localhost"
     - "http://localhost:5173"
     - "http://localhost:5174"
 
-  serve_frontend: true
+  serve_frontend: false
   serve_swagger: true
 logging:
   level: "debug"
@@ -60,16 +59,16 @@ mfa:
   session_timeout: 10m
   backup_code_count: 8
   rate_limit_attempts: 5
-  rate_limit_window: 15m 
+  rate_limit_window: 15m
 storage:
   storage_type: "local" # options: local, s3
   max_user_storage: 10737418240
   max_file_size: 102400
-  bucket_name: 
-  region: 
+  bucket_name:
+  region:
   base_path: "./uploads"
-  access_key: 
-  secret_key: 
+  access_key:
+  secret_key:
   endpoint:
 realtime:
   enabled: true
@@ -97,3 +96,4 @@ bridge:
   instance_id: ""
   instance_token: ""
   timeout_seconds: 15
+

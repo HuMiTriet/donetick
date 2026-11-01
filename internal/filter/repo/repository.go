@@ -63,7 +63,7 @@ func (r *FilterRepository) UpdateFilter(ctx context.Context, filter *fModel.Filt
 		return errors.New("user does not have permission to update this filter")
 	}
 
-	updates := map[string]interface{}{
+	updates := map[string]any{
 		"name":        filter.Name,
 		"description": filter.Description,
 		"color":       filter.Color,

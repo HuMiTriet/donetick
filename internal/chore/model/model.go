@@ -443,7 +443,7 @@ func (f FrequencyMetadata) Value() (driver.Value, error) {
 	return json.Marshal(f)
 }
 
-func (f *FrequencyMetadata) Scan(value interface{}) error {
+func (f *FrequencyMetadata) Scan(value any) error {
 	if value == nil {
 		return nil
 	}
