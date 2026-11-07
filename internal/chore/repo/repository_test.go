@@ -3,6 +3,7 @@ package chore
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -12,6 +13,7 @@ import (
 	chModel "donetick.com/core/internal/chore/model"
 	"donetick.com/core/internal/database"
 	pModel "donetick.com/core/internal/project/model"
+	stModel "donetick.com/core/internal/subtask/model"
 )
 
 const (
@@ -253,5 +255,61 @@ func TestGetChoreDetailByIDIncludesAssignees(t *testing.T) {
 	}
 	if len(detail.Assignees) != 2 || !got[testOwnerID] || !got[testOtherID] {
 		t.Errorf("assignees = %+v, want users %d and %d", detail.Assignees, testOwnerID, testOtherID)
+	}
+}
+
+func TestSubtasksLoadInOrder(t *testing.T) {
+	r, db := newTestChoreRepo(t)
+	ctx := context.Background()
+	chore := createChore(t, db, "ordered", testOwnerID, false, nil)
+	for _, subtask := range []stModel.SubTask{
+		{ChoreID: chore.ID, Name: "third", OrderID: 2},
+		{ChoreID: chore.ID, Name: "first", OrderID: 0},
+		{ChoreID: chore.ID, Name: "second", OrderID: 1},
+	} {
+		if err := db.Create(&subtask).Error; err != nil {
+			t.Fatalf("failed to create subtask %q: %v", subtask.Name, err)
+		}
+	}
+
+	want := []string{"first", "second", "third"}
+	names := func(subtasks *[]stModel.SubTask) []string {
+		t.Helper()
+		if subtasks == nil {
+			return nil
+		}
+		result := make([]string, 0, len(*subtasks))
+		for _, subtask := range *subtasks {
+			result = append(result, subtask.Name)
+		}
+		return result
+	}
+
+	single, err := r.GetChore(ctx, chore.ID, testOwnerID, testCircleID)
+	if err != nil {
+		t.Fatalf("GetChore failed: %v", err)
+	}
+	if got := names(single.SubTasks); !slices.Equal(got, want) {
+		t.Errorf("GetChore subtasks = %v, want %v", got, want)
+	}
+
+	list, err := r.GetChores(ctx, testCircleID, testOwnerID, false, nil, true)
+	if err != nil {
+		t.Fatalf("GetChores failed: %v", err)
+	}
+	index := slices.IndexFunc(list, func(c *chModel.Chore) bool { return c.ID == chore.ID })
+	if index == -1 {
+		t.Fatalf("GetChores did not return chore %d", chore.ID)
+	}
+	if got := names(list[index].SubTasks); !slices.Equal(got, want) {
+		t.Errorf("GetChores subtasks = %v, want %v", got, want)
+	}
+
+	detail, err := r.GetChoreDetailByID(ctx, chore.ID, testCircleID, testOwnerID)
+	if err != nil {
+		t.Fatalf("GetChoreDetailByID failed: %v", err)
+	}
+	if got := names(detail.Subtasks); !slices.Equal(got, want) {
+		t.Errorf("GetChoreDetailByID subtasks = %v, want %v", got, want)
 	}
 }

@@ -8,14 +8,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Building the frontend..."
-cd "$ROOT/donetick-frontend"
+cd "$ROOT/frontend"
 npm ci
 npx vite build --mode selfhosted
 
 echo "Building the backend..."
-cd "$ROOT/donetick"
+cd "$ROOT/backend"
 rm -rf ./frontend/dist
-cp -r "$ROOT/donetick-frontend/dist" ./frontend/dist
+cp -r "$ROOT/frontend/dist" ./frontend/dist
 
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w \
   -X donetick.com/core/config.Version=$(git describe --tags --always --dirty) \

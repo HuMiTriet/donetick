@@ -16,17 +16,16 @@ type BeeminderAccount struct {
 
 type BeeminderStakes struct {
 	gorm.Model
-	ChoreID       int        `gorm:"not null;uniqueIndex"`
-	AccountID     uint       `gorm:"not null;index"`
-	AmountCents   int        `gorm:"not null"`
-	EditableUntil time.Time  `gorm:"not null"`
-	LatestCharge  *time.Time `gorm:"index"`
+	ChoreID       int       `gorm:"not null;uniqueIndex"`
+	AccountID     uint      `gorm:"not null;index"`
+	AmountCents   int       `gorm:"not null"`
+	EditableUntil time.Time `gorm:"not null"`
 }
 
-// type BeeminderCharges struct {
-// 	ID                int        `gorm:"primarykey"`
-// 	ChoreID           int        `gorm:"not null,uniqueIndex"`
-// 	ChargedAt         *time.Time `gorm:"index"`
-// 	BeeminderChargeID *string
-// 	Message           string
-// }
+type BeeminderCharges struct {
+	ID                int        `gorm:"primarykey"`
+	ChoreID           int        `gorm:"not null,uniqueIndex"`
+	ChargedAt         *time.Time `gorm:"index"`
+	BeeminderChargeID *string
+	Message           string
+}

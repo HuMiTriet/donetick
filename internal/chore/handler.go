@@ -894,7 +894,9 @@ func (h *Handler) EditChore(c *gin.Context) {
 
 			for _, existedSubTask := range *oldChore.SubTasks {
 				if existedSubTask.ID == newSubTask.ID {
-					if existedSubTask.Name != newSubTask.Name || existedSubTask.OrderID != newSubTask.OrderID {
+					if existedSubTask.Name != newSubTask.Name ||
+						existedSubTask.OrderID != newSubTask.OrderID ||
+						!sameParentID(existedSubTask, newSubTask) {
 						// there is a change in the subtask, update it
 						break
 					}
@@ -913,7 +915,6 @@ func (h *Handler) EditChore(c *gin.Context) {
 			return
 		}
 	}
-
 
 	if dueDatesDiffer(oldChore.NextDueDate, updatedChore.NextDueDate) {
 		historyEntry := &chModel.ChoreHistory{
@@ -981,6 +982,13 @@ func dueDatesDiffer(oldDueDate, newDueDate *time.Time) bool {
 		return oldDueDate != newDueDate
 	}
 	return !oldDueDate.Equal(*newDueDate)
+}
+
+func sameParentID(a, b stModel.SubTask) bool {
+	if a.ParentId == nil || b.ParentId == nil {
+		return a.ParentId == b.ParentId
+	}
+	return *a.ParentId == *b.ParentId
 }
 
 func (h *Handler) deleteChoreFiles(ctx *gin.Context, choreID int) {

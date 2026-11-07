@@ -517,10 +517,16 @@ func (r *ChoreRepository) CreateChoreWithAssignees(ctx context.Context, chore *c
 	return chore.ID, nil
 }
 
+func orderedSubTasks(db *gorm.DB) *gorm.DB {
+	return db.Order("order_id ASC, id ASC")
+}
+
 func (r *ChoreRepository) GetChore(c context.Context, choreID int, userID int, circleID int) (*chModel.Chore, error) {
 	var chore chModel.Chore
 	query := privacyJoins(r.db.WithContext(c).Model(&chModel.Chore{}), userID).
-		Preload("SubTasks", "chore_id = ?", choreID).
+		Preload("SubTasks", func(db *gorm.DB) *gorm.DB {
+			return orderedSubTasks(db.Where("chore_id = ?", choreID))
+		}).
 		Preload("Assignees").
 		Preload("Project").
 		Preload("ThingChore").
@@ -566,7 +572,7 @@ func (r *ChoreRepository) GetChores(c context.Context, circleID int, userID int,
 		Group("chores.id")
 
 	if includeSubtasks {
-		query = query.Preload("SubTasks")
+		query = query.Preload("SubTasks", orderedSubTasks)
 	}
 	if !includeArchived {
 		query = query.Where("chores.is_active = ?", true)
@@ -1226,7 +1232,7 @@ func (r *ChoreRepository) SetDueDateIfNotExisted(c context.Context, choreID int,
 func (r *ChoreRepository) GetChoreDetailByID(c context.Context, choreID int, circleID int, userID int) (*chModel.ChoreDetail, error) {
 	var choreDetail chModel.ChoreDetail
 	if err := privacyJoins(r.db.WithContext(c).Table("chores"), userID).
-		Preload("Subtasks").
+		Preload("Subtasks", orderedSubTasks).
 		Preload("Assignees").
 		Select(`
         chores.id, 
