@@ -11,6 +11,7 @@ import (
 
 	"donetick.com/core/config"
 	"donetick.com/core/internal/auth"
+	bmModel "donetick.com/core/internal/beeminder"
 	chModel "donetick.com/core/internal/chore/model"
 	chRepo "donetick.com/core/internal/chore/repo"
 	cModel "donetick.com/core/internal/circle/model"
@@ -43,7 +44,7 @@ func newAPIPermissionTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	require.NoError(t, db.AutoMigrate(
 		&uModel.User{}, &uModel.APIToken{}, &uModel.UserNotificationTarget{},
-		&cModel.Circle{}, &cModel.UserCircle{}, &chModel.Chore{}, &chModel.ChoreAssignees{},
+		&cModel.Circle{}, &cModel.UserCircle{}, &chModel.Chore{}, &bmModel.BeeminderStakes{}, &chModel.ChoreAssignees{},
 		&chModel.ChoreHistory{}, &chModel.TimeSession{}, &chModel.ChoreLabels{},
 		&stModel.SubTask{}, &lModel.Label{}, &pModel.Project{}, &pModel.ProjectMember{}, &tModel.Thing{}, &tModel.ThingChore{},
 		&nModel.Notification{}, &storageModel.StorageFile{}, &syncModel.SyncCursor{}, &syncModel.Tombstone{},

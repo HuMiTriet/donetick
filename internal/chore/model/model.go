@@ -13,6 +13,7 @@ import (
 	storageModel "donetick.com/core/internal/storage/model"
 	stModel "donetick.com/core/internal/subtask/model"
 	tModel "donetick.com/core/internal/thing/model"
+	"gorm.io/gorm"
 )
 
 const MAX_TEMPLATES = 5
@@ -80,6 +81,30 @@ type Chore struct {
 	Project                *pModel.Project            `json:"project,omitempty" gorm:"foreignkey:ProjectID;references:ID"`                            // Project relationship
 	SyncVersion            int64                      `json:"syncVersion" gorm:"column:sync_version;not null;default:0;index;index:idx_chores_circle_sync_version,priority:2"`
 	Attachments            []storageModel.StorageFile `json:"attachments,omitempty" gorm:"-"`
+	Stake                  *ChoreStake                `json:"stake,omitempty" gorm:"foreignKey:ChoreID;references:ID;<-:false;-:migration"` // Beeminder stake, read-only
+}
+
+// ChoreStake is a read-only view of a chore's row in beeminder_stakes, so
+// chore queries can preload it. This package can't use
+// beeminder.BeeminderStakes: internal/beeminder imports internal/label/repo
+// (to attach the default label), which imports this package, so that would
+// be an import cycle. The beeminder package owns the table and its migration.
+type ChoreStake struct {
+	ID            uint           `json:"-" gorm:"primaryKey"`
+	ChoreID       int            `json:"-"`
+	AccountID     uint           `json:"-"`
+	AmountCents   int            `json:"amountCents"`
+	EditableUntil time.Time      `json:"editableUntil"`
+	DeletedAt     gorm.DeletedAt `json:"-"`
+}
+
+func (ChoreStake) TableName() string { return "beeminder_stakes" }
+
+// StakeLocked reports whether the chore's Beeminder stake has passed its edit
+// window, which locks the chore against edits, deletion and archiving. It
+// relies on Stake being preloaded.
+func (c *Chore) StakeLocked(now time.Time) bool {
+	return c.Stake != nil && !now.Before(c.Stake.EditableUntil)
 }
 
 type Status int8
@@ -195,6 +220,7 @@ type ChoreDetail struct {
 	IsActive            bool                       `json:"isActive" gorm:"column:is_active"`
 	SyncVersion         int64                      `json:"syncVersion" gorm:"column:sync_version"`
 	Attachments         []storageModel.StorageFile `json:"attachments,omitempty" gorm:"-"`
+	Stake               *ChoreStake                `json:"stake,omitempty" gorm:"-"`
 }
 
 type ChoreLabels struct {

@@ -18,6 +18,8 @@ type Resource struct {
 	// signup, leaving only SSO (#438).
 	DisablePasswordAuth bool `json:"disable_password_auth"`
 	BridgeEnabled       bool `json:"bridge_enabled"`
+	// BeeminderEnabled tells the client to offer Beeminder stakes.
+	BeeminderEnabled bool `json:"beeminder_enabled"`
 }
 type identityProvider struct {
 	Auth_url  string   `json:"auth_url" binding:"omitempty"`
@@ -53,6 +55,7 @@ func (h *Handler) getResource(c *gin.Context) {
 		SingleCircleInstance:   h.config.SingleCircleInstance,
 		DisablePasswordAuth:    h.config.DisablePasswordAuth,
 		BridgeEnabled:          h.config.Bridge.Enabled,
+		BeeminderEnabled:       h.config.Beeminder.Enabled,
 	})
 }
 

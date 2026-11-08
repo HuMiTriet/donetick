@@ -531,6 +531,7 @@ func (r *ChoreRepository) GetChore(c context.Context, choreID int, userID int, c
 		Preload("Project").
 		Preload("ThingChore").
 		Preload("LabelsV2").
+		Preload("Stake").
 		Where("chores.id = ? AND chores.circle_id = ?", choreID, circleID).
 		Where(privacyPredicate(userID))
 
@@ -549,7 +550,7 @@ func (r *ChoreRepository) GetChore(c context.Context, choreID int, userID int, c
 // server-side work that decides recipients itself.
 func (r *ChoreRepository) GetChoreForSystem(c context.Context, choreID int) (*chModel.Chore, error) {
 	var chore chModel.Chore
-	if err := r.db.WithContext(c).Preload("Assignees").Preload("Project").First(&chore, choreID).Error; err != nil {
+	if err := r.db.WithContext(c).Preload("Assignees").Preload("Project").Preload("Stake").First(&chore, choreID).Error; err != nil {
 		return nil, err
 	}
 	if err := access.LoadMembers(c, r.db, chore.Project); err != nil {
@@ -567,6 +568,7 @@ func (r *ChoreRepository) GetChores(c context.Context, circleID int, userID int,
 	query := privacyJoins(r.db.WithContext(c).Model(&chModel.Chore{}), userID).
 		Preload("Assignees").
 		Preload("LabelsV2").
+		Preload("Stake").
 		Where("chores.circle_id = ?", circleID).
 		Where(privacyPredicate(userID)).
 		Group("chores.id")
@@ -599,6 +601,7 @@ func (r *ChoreRepository) GetArchivedChores(c context.Context, circleID int, use
 	if err := privacyJoins(r.db.WithContext(c).Model(&chModel.Chore{}), userID).
 		Preload("Assignees").
 		Preload("LabelsV2").
+		Preload("Stake").
 		Where("chores.circle_id = ?", circleID).
 		Where(privacyPredicate(userID)).
 		Where("is_active = ?", false).
@@ -640,6 +643,10 @@ func (r *ChoreRepository) DeleteChore(c context.Context, id int) (int64, error) 
 		}
 		// Delete all chore labels
 		if err := tx.Where("chore_id = ?", id).Delete(&chModel.ChoreLabels{}).Error; err != nil {
+			return err
+		}
+		// Delete the Beeminder stake, if any. Its charge history is kept.
+		if err := tx.Unscoped().Where("chore_id = ?", id).Delete(&chModel.ChoreStake{}).Error; err != nil {
 			return err
 		}
 		// Delete all storage files associated with the chore
@@ -1281,6 +1288,13 @@ func (r *ChoreRepository) GetChoreDetailByID(c context.Context, choreID int, cir
 		return nil, err
 	}
 	r.db.WithContext(c).Where("entity_type = ? AND entity_id = ?", storageModel.EntityTypeChoreAttachment, choreID).Find(&choreDetail.Attachments)
+	var stakes []chModel.ChoreStake
+	if err := r.db.WithContext(c).Where("chore_id = ?", choreID).Limit(1).Find(&stakes).Error; err != nil {
+		return nil, err
+	}
+	if len(stakes) > 0 {
+		choreDetail.Stake = &stakes[0]
+	}
 	return &choreDetail, nil
 }
 

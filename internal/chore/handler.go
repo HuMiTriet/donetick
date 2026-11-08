@@ -14,6 +14,7 @@ import (
 	"time"
 
 	auth "donetick.com/core/internal/auth"
+	"donetick.com/core/internal/beeminder"
 	chModel "donetick.com/core/internal/chore/model"
 	chRepo "donetick.com/core/internal/chore/repo"
 	circle "donetick.com/core/internal/circle/model"
@@ -59,6 +60,7 @@ type Handler struct {
 	storage         storage.Storage
 	realTimeService *realtime.RealTimeService
 	signer          storage.URLSigner
+	stakes          *beeminder.Service
 }
 
 func NewHandler(cr *chRepo.ChoreRepository, circleRepo *cRepo.CircleRepository, nt *notifier.Notifier,
@@ -69,8 +71,10 @@ func NewHandler(cr *chRepo.ChoreRepository, circleRepo *cRepo.CircleRepository, 
 	dr *dRepo.DeviceRepository,
 	stoRepo *storageRepo.StorageRepository,
 	signer storage.URLSigner,
-	rts *realtime.RealTimeService) *Handler {
+	rts *realtime.RealTimeService,
+	stakes *beeminder.Service) *Handler {
 	return &Handler{
+		stakes:          stakes,
 		choreRepo:       cr,
 		uRepo:           ur,
 		deviceRepo:      dr,
@@ -330,6 +334,11 @@ type ChoreReq struct {
 	ProjectID            *int                          `json:"projectId" binding:"omitempty"`
 	ThingTrigger         *tModel.ThingTrigger          `json:"thingTrigger"`
 	DraftId              *string                       `json:"draftId,omitempty"`
+	Stake                *StakeReq                     `json:"stake,omitempty"`
+}
+
+type StakeReq struct {
+	AmountCents int `json:"amountCents" binding:"min=0"`
 }
 
 type ActionOptions struct {
@@ -416,6 +425,35 @@ func applyPauseActionTime(session *chModel.TimeSession, userID int, actionTime t
 	}
 	session.UpdateBy = userID
 	session.UpdateAt = actionTime
+}
+
+// writeStakeError answers a request that a Beeminder stake rule refused.
+func writeStakeError(c *gin.Context, err error) {
+	status := beeminder.StatusCode(err)
+	if status == http.StatusInternalServerError {
+		logging.FromContext(c).Errorw("Beeminder stake operation failed", "error", err)
+		c.JSON(status, gin.H{"error": "Failed to update the Beeminder stake"})
+		return
+	}
+	c.JSON(status, gin.H{"error": err.Error()})
+}
+
+// ensureUnlocked answers 423 and returns false when a Beeminder stake has
+// locked the chore against edits, deletion and archiving.
+func (h *Handler) ensureUnlocked(c *gin.Context, choreID int) bool {
+	if h.stakes == nil {
+		return true
+	}
+	if err := h.stakes.EnsureUnlocked(c, choreID); err != nil {
+		writeStakeError(c, err)
+		return false
+	}
+	return true
+}
+
+// wantsStake reports whether a create request asks for a stake.
+func wantsStake(req ChoreReq) bool {
+	return req.Stake != nil && req.Stake.AmountCents > 0
 }
 
 // endregion
@@ -516,6 +554,17 @@ func (h *Handler) CreateChore(c *gin.Context) {
 		dueDate = &utcDate
 	}
 
+	if wantsStake(choreReq) {
+		if h.stakes == nil {
+			c.JSON(400, gin.H{"error": "Beeminder stakes are turned off on this server"})
+			return
+		}
+		if _, err := h.stakes.CheckNewStake(c, &currentUser.User, dueDate, choreReq.Stake.AmountCents); err != nil {
+			writeStakeError(c, err)
+			return
+		}
+	}
+
 	warnings := setCreateChoreDefaults(&choreReq)
 	if !choreReq.Notification && choreReq.NotificationMetadata != nil {
 		warnings = append(warnings, "notificationMetadata provided while notification is false; ignoring metadata")
@@ -586,6 +635,13 @@ func (h *Handler) CreateChore(c *gin.Context) {
 			c.JSON(500, gin.H{
 				"error": "Error adding labels",
 			})
+			return
+		}
+	}
+
+	if wantsStake(choreReq) {
+		if _, err := h.stakes.PlaceStake(c, &currentUser.User, createdChore.ID, dueDate, choreReq.Stake.AmountCents); err != nil {
+			writeStakeError(c, err)
 			return
 		}
 	}
@@ -778,6 +834,9 @@ func (h *Handler) EditChore(c *gin.Context) {
 		})
 		return
 	}
+	if !h.ensureUnlocked(c, oldChore.ID) {
+		return
+	}
 
 	// Create a map to store the existing labels for quick lookup
 	oldLabelsMap := make(map[int]struct{})
@@ -825,6 +884,17 @@ func (h *Handler) EditChore(c *gin.Context) {
 		dueDate = &utcDate
 	} else {
 		dueDate = oldChore.NextDueDate
+	}
+
+	if choreReq.Stake != nil {
+		if h.stakes == nil {
+			c.JSON(400, gin.H{"error": "Beeminder stakes are turned off on this server"})
+			return
+		}
+		if err := h.stakes.ApplyStakeChange(c, &currentUser.User, oldChore.ID, dueDate, choreReq.Stake.AmountCents); err != nil {
+			writeStakeError(c, err)
+			return
+		}
 	}
 
 	setEditChoreDefaults(&choreReq, oldChore)
@@ -1116,6 +1186,9 @@ func (h *Handler) DeleteChore(c *gin.Context) {
 		})
 		return
 	}
+	if !h.ensureUnlocked(c, chore.ID) {
+		return
+	}
 
 	// Collect file paths before deletion; the DeleteChore transaction removes the
 	// DB records, so we must query them first or the backing objects are orphaned.
@@ -1248,6 +1321,9 @@ func (h *Handler) UpdateAssignee(c *gin.Context) {
 		c.JSON(403, gin.H{
 			"error": fmt.Sprintf("You cannot edit this chore: %s", err.Error()),
 		})
+		return
+	}
+	if !h.ensureUnlocked(c, chore.ID) {
 		return
 	}
 
@@ -1824,6 +1900,22 @@ func (h *Handler) SkipChore(c *gin.Context) {
 		}
 	}
 
+	// Skipping a staked chore always charges the stake. Charge first, so a
+	// failed charge leaves the chore unskipped instead of skipped for free.
+	if h.stakes != nil && chore.Stake != nil && chore.IsActive {
+		if err := h.stakes.ChargeSkip(c, chore.ID, chore.Name); err != nil {
+			if errors.Is(err, beeminder.ErrChargeFailed) {
+				logger.Errorw("Failed to charge Beeminder stake for skip", "choreID", chore.ID, "error", err)
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "Couldn't charge your Beeminder stake, so the task wasn't skipped. Try again.",
+				})
+				return
+			}
+			// The charge went through but wasn't recorded; skip anyway.
+			logger.Errorw("Beeminder skip charge not recorded", "choreID", chore.ID, "error", err)
+		}
+	}
+
 	nextAssignedTo := chore.AssignedTo
 	var skippedAt *time.Time
 	if req.ActionOptions != nil && !req.ActionOptions.CreatedAt.IsZero() {
@@ -1945,6 +2037,13 @@ func (h *Handler) UpdateDueDate(c *gin.Context) {
 		c.JSON(403, gin.H{})
 		return
 	}
+	if !h.ensureUnlocked(c, chore.ID) {
+		return
+	}
+	if dueDate == nil && chore.Stake != nil {
+		c.JSON(400, gin.H{"error": "A staked task needs a due date. Remove the stake first."})
+		return
+	}
 	now := time.Now().UTC()
 	if err := h.choreRepo.UpdateChoreFields(c, chore.ID, map[string]interface{}{
 		"next_due_date": dueDate,
@@ -2024,6 +2123,9 @@ func (h *Handler) ArchiveChore(c *gin.Context) {
 		return
 	}
 
+	if !h.ensureUnlocked(c, id) {
+		return
+	}
 	err = h.choreRepo.ArchiveChore(c, id, currentUser.ID, currentUser.CircleID)
 
 	if err != nil {
@@ -2740,6 +2842,9 @@ func (h *Handler) UpdatePriority(c *gin.Context) {
 		c.JSON(403, gin.H{
 			"error": "You are not allowed to edit this chore",
 		})
+		return
+	}
+	if !h.ensureUnlocked(c, chore.ID) {
 		return
 	}
 

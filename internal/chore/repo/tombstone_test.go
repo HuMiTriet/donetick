@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"donetick.com/core/config"
+	bmModel "donetick.com/core/internal/beeminder"
 	chModel "donetick.com/core/internal/chore/model"
 	cModel "donetick.com/core/internal/circle/model"
 	nModel "donetick.com/core/internal/notifier/model"
@@ -24,6 +25,7 @@ func newVisibilityTestRepository(t *testing.T) (*ChoreRepository, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&chModel.Chore{},
+		&bmModel.BeeminderStakes{},
 		&chModel.ChoreAssignees{},
 		&chModel.ChoreHistory{},
 		&pModel.Project{},

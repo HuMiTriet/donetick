@@ -113,6 +113,9 @@ func (s *DeletionService) deleteUserAccount(ctx context.Context, userID int, tra
 			{"project_members", s.countProjectMemberships},
 			{"projects", s.countOwnedProjects},
 			{"tombstones", s.countUserTombstones},
+			{"beeminder_charges", s.countBeeminderCharges},
+			{"beeminder_stakes", s.countBeeminderStakes},
+			{"beeminder_accounts", s.countBeeminderAccounts},
 			{"chore_labels", s.countChoreLabels},
 			{"subtasks", s.countUserSubtasks},
 			{"chores", s.countUserChores},
@@ -192,6 +195,9 @@ func (s *DeletionService) deleteUserAccount(ctx context.Context, userID int, tra
 		{"project_members", s.deleteProjectMemberships},
 		{"projects", s.deleteOwnedProjects},
 		{"tombstones", s.deleteUserTombstones},
+		{"beeminder_charges", s.deleteBeeminderCharges},
+		{"beeminder_stakes", s.deleteBeeminderStakes},
+		{"beeminder_accounts", s.deleteBeeminderAccounts},
 		{"chore_labels", s.deleteChoreLabels},
 		{"subtasks", s.deleteUserSubtasks},
 		{"chores", s.deleteUserChores},
@@ -394,6 +400,38 @@ func (s *DeletionService) deleteUserTombstones(tx *gorm.DB, userID int) (int, er
 
 func (s *DeletionService) countUserTombstones(tx *gorm.DB, userID int) (int, error) {
 	return s.safeCount(tx, "SELECT COUNT(*) FROM tombstones WHERE user_id = ?", userID)
+}
+
+// Beeminder: charges and stakes on the user's chores, stakes placed through
+// the user's Beeminder account, and the account itself (linked by username).
+const (
+	beeminderChargesWhere  = "chore_id IN (SELECT id FROM chores WHERE created_by = ?)"
+	beeminderStakesWhere   = "chore_id IN (SELECT id FROM chores WHERE created_by = ?) OR account_id IN (SELECT id FROM beeminder_accounts WHERE username = (SELECT username FROM users WHERE id = ?))"
+	beeminderAccountsWhere = "username = (SELECT username FROM users WHERE id = ?)"
+)
+
+func (s *DeletionService) deleteBeeminderCharges(tx *gorm.DB, userID int) (int, error) {
+	return s.safeDelete(tx, "DELETE FROM beeminder_charges WHERE "+beeminderChargesWhere, userID)
+}
+
+func (s *DeletionService) deleteBeeminderStakes(tx *gorm.DB, userID int) (int, error) {
+	return s.safeDelete(tx, "DELETE FROM beeminder_stakes WHERE "+beeminderStakesWhere, userID, userID)
+}
+
+func (s *DeletionService) deleteBeeminderAccounts(tx *gorm.DB, userID int) (int, error) {
+	return s.safeDelete(tx, "DELETE FROM beeminder_accounts WHERE "+beeminderAccountsWhere, userID)
+}
+
+func (s *DeletionService) countBeeminderCharges(tx *gorm.DB, userID int) (int, error) {
+	return s.safeCount(tx, "SELECT COUNT(*) FROM beeminder_charges WHERE "+beeminderChargesWhere, userID)
+}
+
+func (s *DeletionService) countBeeminderStakes(tx *gorm.DB, userID int) (int, error) {
+	return s.safeCount(tx, "SELECT COUNT(*) FROM beeminder_stakes WHERE "+beeminderStakesWhere, userID, userID)
+}
+
+func (s *DeletionService) countBeeminderAccounts(tx *gorm.DB, userID int) (int, error) {
+	return s.safeCount(tx, "SELECT COUNT(*) FROM beeminder_accounts WHERE "+beeminderAccountsWhere, userID)
 }
 
 func (s *DeletionService) deleteChoreLabels(tx *gorm.DB, userID int) (int, error) {

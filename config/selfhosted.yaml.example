@@ -97,3 +97,17 @@ bridge:
   instance_id: ""
   instance_token: ""
   timeout_seconds: 15
+# Beeminder: users link their Beeminder account (Settings > Beeminder) and put
+# money at stake on chores that have a due date; a staked chore that goes
+# overdue or is skipped is charged through Beeminder. edit_window is how long
+# after a stake is placed the chore can still be changed, deleted or unstaked;
+# after that it is locked. dry_run passes Beeminder's dryrun flag so charges
+# are simulated -- set it to false once you want real charges.
+beeminder:
+  enabled: false
+  dry_run: true
+  base_url: "https://www.beeminder.com/api/v1"
+  timeout_seconds: 15
+  check_interval: 5m
+  edit_window: 15m
+  max_amount_cents: 100000

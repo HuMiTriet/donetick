@@ -2,6 +2,7 @@ package chore
 
 import (
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -224,6 +225,10 @@ func (h *API) UpdateChore(c *gin.Context) {
 	if existingChore.CreatedBy != user.ID && !user.IsAdminOrManager(circleUsers) {
 		log.Debugw("chore.api.UpdateChore edit denied", "userID", user.ID, "circleID", user.CircleID, "choreCreatedBy", existingChore.CreatedBy)
 		c.JSON(403, gin.H{"error": "Only the chore creator or a circle admin/manager can update this chore"})
+		return
+	}
+	if existingChore.StakeLocked(time.Now()) {
+		c.JSON(http.StatusLocked, gin.H{"error": "This task is locked by a Beeminder stake and can no longer be changed or deleted"})
 		return
 	}
 
@@ -454,6 +459,10 @@ func (h *API) DeleteChore(c *gin.Context) {
 			c.JSON(403, gin.H{"error": "Only the chore creator or a circle admin/manager can delete this chore"})
 			return
 		}
+	}
+	if chore.StakeLocked(time.Now()) {
+		c.JSON(http.StatusLocked, gin.H{"error": "This task is locked by a Beeminder stake and can no longer be changed or deleted"})
+		return
 	}
 	if _, err := h.choreRepo.DeleteChore(c, choreID); err != nil {
 		c.JSON(500, gin.H{"error": "Failed to delete chore"})

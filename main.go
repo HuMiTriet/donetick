@@ -14,6 +14,7 @@ import (
 	"donetick.com/core/frontend"
 	auth "donetick.com/core/internal/auth"
 	"donetick.com/core/internal/auth/apple"
+	"donetick.com/core/internal/beeminder"
 	"donetick.com/core/internal/bridge"
 	"donetick.com/core/internal/calendar"
 	calRepo "donetick.com/core/internal/calendar/repo"
@@ -167,6 +168,13 @@ func main() {
 		fx.Provide(lRepo.NewLabelRepository),
 		fx.Provide(label.NewHandler),
 
+		// Beeminder stakes:
+		fx.Provide(beeminder.NewBeeminderRepository),
+		fx.Provide(beeminder.NewClient),
+		fx.Provide(beeminder.NewService),
+		fx.Provide(beeminder.NewHandler),
+		fx.Provide(beeminder.NewScheduler),
+
 		// Rewards:
 		fx.Provide(rwRepo.NewRewardRepository),
 		fx.Provide(reward.NewHandler),
@@ -233,6 +241,7 @@ func main() {
 			thing.Routes,
 			thing.APIs,
 			label.Routes,
+			beeminder.Routes,
 			reward.Routes,
 			project.Routes,
 			filter.Routes,
@@ -260,7 +269,7 @@ func main() {
 
 }
 
-func newServer(lc fx.Lifecycle, cfg *config.Config, db *gorm.DB, notifier *notifier.Scheduler, eventProducer *events.EventsProducer, mfaCleanup *mfa.CleanupService, authCleanup *auth.CleanupService, rts *realtime.RealTimeService, draftCleanup *storage.DraftCleanupService, ticketStore *realtime.TicketStore) *gin.Engine {
+func newServer(lc fx.Lifecycle, cfg *config.Config, db *gorm.DB, notifier *notifier.Scheduler, eventProducer *events.EventsProducer, mfaCleanup *mfa.CleanupService, authCleanup *auth.CleanupService, rts *realtime.RealTimeService, draftCleanup *storage.DraftCleanupService, ticketStore *realtime.TicketStore, beeminderScheduler *beeminder.Scheduler) *gin.Engine {
 	// Set Gin mode based on logging configuration
 	if cfg.Logging.Development || strings.ToLower(cfg.Logging.Level) == "debug" {
 		gin.SetMode(gin.DebugMode)
@@ -323,6 +332,7 @@ func newServer(lc fx.Lifecycle, cfg *config.Config, db *gorm.DB, notifier *notif
 			mfaCleanup.Start(context.Background())
 			authCleanup.Start(context.Background())
 			draftCleanup.Start(context.Background())
+			beeminderScheduler.Start(context.Background())
 
 			// Start real-time service
 			if err := rts.Start(ctx); err != nil {
@@ -355,6 +365,7 @@ func newServer(lc fx.Lifecycle, cfg *config.Config, db *gorm.DB, notifier *notif
 			mfaCleanup.Stop()
 			authCleanup.Stop()
 			draftCleanup.Stop()
+			beeminderScheduler.Stop()
 
 			// Stop the SSE ticket store cleanup goroutine
 			ticketStore.Stop()

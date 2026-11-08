@@ -46,6 +46,7 @@ type Config struct {
 	DonetickCloudConfig    DonetickCloudConfig `mapstructure:"donetick_cloud" yaml:"donetick_cloud"`
 	FCM                    FCMConfig           `mapstructure:"fcm" yaml:"fcm"`
 	Bridge                 BridgeConfig        `mapstructure:"bridge" yaml:"bridge"`
+	Beeminder              BeeminderConfig     `mapstructure:"beeminder" yaml:"beeminder"`
 	FeatureLimits          FeatureLimitsConfig `mapstructure:"feature_limits" yaml:"feature_limits"`
 	Storage                StorageConfig       `mapstructure:"storage" yaml:"storage"`
 	SingleCircleInstance   bool                `mapstructure:"single_circle_instance" yaml:"single_circle_instance"`
@@ -207,6 +208,22 @@ type BridgeConfig struct {
 	InstanceID     string `json:"instance_id" mapstructure:"instance_id" yaml:"instance_id"`
 	InstanceToken  string `json:"-" mapstructure:"instance_token" yaml:"instance_token"`
 	TimeoutSeconds int    `json:"timeout_seconds" mapstructure:"timeout_seconds" yaml:"timeout_seconds" default:"15"`
+}
+
+// BeeminderConfig configures Beeminder stakes: users link their Beeminder
+// account and put money on chores that have a due date. A staked chore that
+// goes overdue, or is skipped, is charged through Beeminder's charges API.
+// EditWindow is how long after a stake is placed the chore can still be
+// edited, deleted or have its stake removed; after that the chore is locked.
+// DryRun passes Beeminder's dryrun flag so charges are simulated.
+type BeeminderConfig struct {
+	Enabled        bool          `json:"enabled" mapstructure:"enabled" yaml:"enabled"`
+	DryRun         bool          `json:"dry_run" mapstructure:"dry_run" yaml:"dry_run"`
+	BaseURL        string        `json:"base_url" mapstructure:"base_url" yaml:"base_url" default:"https://www.beeminder.com/api/v1"`
+	TimeoutSeconds int           `json:"timeout_seconds" mapstructure:"timeout_seconds" yaml:"timeout_seconds" default:"15"`
+	CheckInterval  time.Duration `json:"check_interval" mapstructure:"check_interval" yaml:"check_interval" default:"5m"`
+	MaxAmountCents int           `json:"max_amount_cents" mapstructure:"max_amount_cents" yaml:"max_amount_cents"`
+	EditWindow     time.Duration `json:"edit_window" mapstructure:"edit_window" yaml:"edit_window" default:"15m"`
 }
 
 type EmailConfig struct {

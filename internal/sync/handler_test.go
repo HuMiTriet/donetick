@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"donetick.com/core/config"
+	bmModel "donetick.com/core/internal/beeminder"
 	chModel "donetick.com/core/internal/chore/model"
 	chRepo "donetick.com/core/internal/chore/repo"
 	cModel "donetick.com/core/internal/circle/model"
@@ -43,6 +44,7 @@ func newSyncHandlerTest(t *testing.T) (*chRepo.ChoreRepository, *gorm.DB, *gin.E
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&chModel.Chore{},
+		&bmModel.BeeminderStakes{},
 		&chModel.ChoreAssignees{},
 		&chModel.ChoreHistory{},
 		&chModel.ChoreLabels{},
