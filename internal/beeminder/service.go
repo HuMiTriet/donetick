@@ -76,10 +76,17 @@ func (s *Service) EditWindow() time.Duration { return s.cfg.EditWindow }
 
 func (s *Service) MaxAmountCents() int { return s.cfg.MaxAmountCents }
 
-func (s *Service) ServerDryRun() bool { return s.cfg.DryRun }
+// DryRun reports whether charges on account are simulated. Only the server
+// decides this: the YAML dry_run setting covers every account, and an
+// account's dry_run column can be set directly in the database. Clients can't
+// change either.
+func (s *Service) DryRun(account *BeeminderAccount) bool {
+	return s.cfg.DryRun || account.DryRun
+}
 
-func (s *Service) GetAccount(ctx context.Context, username string) (*BeeminderAccount, error) {
-	return s.repo.GetAccountByUsername(ctx, username)
+// GetAccount returns the Beeminder account linked to a Donetick user, or nil.
+func (s *Service) GetAccount(ctx context.Context, userID int) (*BeeminderAccount, error) {
+	return s.repo.GetAccountByDoneTickUserID(ctx, userID)
 }
 
 // BeeminderUser returns the Beeminder user behind an account's token.
@@ -96,8 +103,10 @@ func (s *Service) BeeminderUser(ctx context.Context, account *BeeminderAccount) 
 	return me, nil
 }
 
-// LinkAccount checks token with Beeminder and links it to the Donetick user.
-// It returns ErrInvalidToken when Beeminder rejects the token.
+// LinkAccount checks token with Beeminder and links it to the Donetick user,
+// storing the Beeminder username it belongs to. It returns ErrInvalidToken
+// when Beeminder rejects the token. A token or Beeminder account can only be
+// linked to one Donetick user.
 func (s *Service) LinkAccount(ctx context.Context, user *uModel.User, token string) (*BeeminderAccount, *User, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -115,18 +124,25 @@ func (s *Service) LinkAccount(ctx context.Context, user *uModel.User, token stri
 	if err != nil {
 		return nil, nil, err
 	}
-	if other != nil && (other.Username == nil || *other.Username != user.Username) {
+	if other != nil && other.DoneTickUserID != user.ID {
 		return nil, nil, invalid("This Beeminder auth token is already linked to another Donetick account")
 	}
+	other, err = s.repo.GetAccountByUsername(ctx, me.Username)
+	if err != nil {
+		return nil, nil, err
+	}
+	if other != nil && other.DoneTickUserID != user.ID {
+		return nil, nil, invalid("This Beeminder account is already linked to another Donetick account")
+	}
 
-	account, err := s.repo.GetAccountByUsername(ctx, user.Username)
+	account, err := s.repo.GetAccountByDoneTickUserID(ctx, user.ID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if account == nil {
-		username := user.Username
-		account = &BeeminderAccount{Username: &username}
+		account = &BeeminderAccount{DoneTickUserID: user.ID}
 	}
+	account.Username = &me.Username
 	account.AuthToken = token
 	account.Deadbeat = me.Deadbeat
 	account.EditWindowSeconds = int(s.cfg.EditWindow.Seconds())
@@ -136,10 +152,11 @@ func (s *Service) LinkAccount(ctx context.Context, user *uModel.User, token stri
 	return account, me, nil
 }
 
-// UpdateSettings sets the account's dry-run flag and default stake label.
-// A nil defaultLabelID means staked chores get no label.
-func (s *Service) UpdateSettings(ctx context.Context, user *uModel.User, dryRun bool, defaultLabelID *int) (*BeeminderAccount, error) {
-	account, err := s.repo.GetAccountByUsername(ctx, user.Username)
+// UpdateSettings sets the account's default stake label. A nil
+// defaultLabelID means staked chores get no label. Dry run isn't a user
+// setting; see DryRun.
+func (s *Service) UpdateSettings(ctx context.Context, user *uModel.User, defaultLabelID *int) (*BeeminderAccount, error) {
+	account, err := s.repo.GetAccountByDoneTickUserID(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,12 +178,10 @@ func (s *Service) UpdateSettings(ctx context.Context, user *uModel.User, dryRun 
 	}
 
 	if err := s.repo.UpdateAccountFields(ctx, account.ID, map[string]any{
-		"dry_run":          dryRun,
 		"default_label_id": labelValue,
 	}); err != nil {
 		return nil, err
 	}
-	account.DryRun = dryRun
 	account.DefaultLabelID = defaultLabelID
 	return account, nil
 }
@@ -194,7 +209,7 @@ func (s *Service) CheckNewStake(ctx context.Context, user *uModel.User, nextDueD
 	if err := s.checkAmount(amountCents); err != nil {
 		return nil, err
 	}
-	account, err := s.repo.GetAccountByUsername(ctx, user.Username)
+	account, err := s.repo.GetAccountByDoneTickUserID(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +294,7 @@ func (s *Service) checkEditable(ctx context.Context, user *uModel.User, stake *B
 	if err != nil {
 		return nil, err
 	}
-	if account.Username == nil || *account.Username != user.Username {
+	if account.DoneTickUserID != user.ID {
 		return nil, invalid("Only the person who placed this stake can change it")
 	}
 	return account, nil
@@ -343,7 +358,7 @@ func (s *Service) ChargeViaBeeminder(ctx context.Context, choreID int, accountID
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrChargeFailed, err)
 	}
-	dryRun := s.cfg.DryRun || account.DryRun
+	dryRun := s.DryRun(account)
 	chargeID, err := s.client.Charge(ctx, account.AuthToken, me.Username, amountCents, note, dryRun)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrChargeFailed, err)

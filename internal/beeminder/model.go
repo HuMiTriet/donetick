@@ -7,6 +7,7 @@ import (
 
 type BeeminderAccount struct {
 	gorm.Model
+	DoneTickUserID    int     `gorm:"not null;uniqueIndex"`
 	Username          *string `gorm:"uniqueIndex"`
 	AuthToken         string  `json:"-" gorm:"column:token;size:64;uniqueIndex"`
 	EditWindowSeconds int     `gorm:"not null"`

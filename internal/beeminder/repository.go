@@ -16,8 +16,22 @@ func NewBeeminderRepository(db *gorm.DB) *BeeminderRepository {
 	return &BeeminderRepository{db: db}
 }
 
-// GetAccountByUsername returns the account linked to a Donetick username, or
-// nil when there is none.
+// GetAccountByDoneTickUserID returns the account linked to a Donetick user,
+// or nil when there is none.
+func (r *BeeminderRepository) GetAccountByDoneTickUserID(ctx context.Context, userID int) (*BeeminderAccount, error) {
+	var account BeeminderAccount
+	err := r.db.WithContext(ctx).Where("done_tick_user_id = ?", userID).First(&account).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &account, nil
+}
+
+// GetAccountByUsername returns the account linked to a Beeminder username,
+// or nil when there is none.
 func (r *BeeminderRepository) GetAccountByUsername(ctx context.Context, username string) (*BeeminderAccount, error) {
 	var account BeeminderAccount
 	err := r.db.WithContext(ctx).Where("username = ?", username).First(&account).Error

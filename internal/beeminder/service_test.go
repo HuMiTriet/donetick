@@ -22,7 +22,12 @@ import (
 	"gorm.io/gorm"
 )
 
-const goodToken = "good-token"
+const (
+	goodToken = "good-token"
+	// secondToken is another token the fake accepts for the same Beeminder
+	// user, alice.
+	secondToken = "good-token-2"
+)
 
 // fakeBeeminder stands in for the Beeminder API.
 type fakeBeeminder struct {
@@ -41,7 +46,7 @@ func (f *fakeBeeminder) handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	if r.Form.Get("auth_token") != goodToken {
+	if token := r.Form.Get("auth_token"); token != goodToken && token != secondToken {
 		http.Error(w, `{"errors":"bad token"}`, http.StatusUnauthorized)
 		return
 	}
@@ -179,16 +184,29 @@ func TestLinkAccount(t *testing.T) {
 	account, me, err := env.svc.LinkAccount(ctx, env.owner, "  "+goodToken+" ")
 	require.NoError(t, err)
 	require.Equal(t, "alice", me.Username)
-	require.Equal(t, "tri", *account.Username, "Username holds the Donetick username")
+	require.Equal(t, "alice", *account.Username, "Username holds the Beeminder username")
+	require.Equal(t, env.owner.ID, account.DoneTickUserID, "linked to the Donetick user")
 	require.Equal(t, 900, account.EditWindowSeconds, "copied from the YAML edit window")
 
 	again, _, err := env.svc.LinkAccount(ctx, env.owner, goodToken)
 	require.NoError(t, err)
 	require.Equal(t, account.ID, again.ID, "relinking updates the same row")
 
+	// The same Beeminder user with a new token updates the same row too.
+	again, _, err = env.svc.LinkAccount(ctx, env.owner, secondToken)
+	require.NoError(t, err)
+	require.Equal(t, account.ID, again.ID)
+	require.Equal(t, secondToken, again.AuthToken)
+
+	// Another Donetick user can't take the token, or the Beeminder account
+	// through a different token.
 	other := &uModel.User{ID: 2, CircleID: 1, Username: "bob"}
+	_, _, err = env.svc.LinkAccount(ctx, other, secondToken)
+	requireValidation(t, err)
+	require.Contains(t, err.Error(), "auth token is already linked")
 	_, _, err = env.svc.LinkAccount(ctx, other, goodToken)
 	requireValidation(t, err)
+	require.Contains(t, err.Error(), "Beeminder account is already linked")
 }
 
 func TestPlaceStakeValidation(t *testing.T) {
@@ -235,11 +253,11 @@ func TestDefaultLabelFollowsStake(t *testing.T) {
 	label := &lModel.Label{Name: "staked", Color: "#f00", CreatedBy: env.owner.ID, CircleID: &circleID}
 	require.NoError(t, env.db.Create(label).Error)
 
-	_, err := env.svc.UpdateSettings(ctx, env.owner, false, &[]int{label.ID + 100}[0])
+	_, err := env.svc.UpdateSettings(ctx, env.owner, &[]int{label.ID + 100}[0])
 	requireValidation(t, err) // not one of the user's labels
-	account, err := env.svc.UpdateSettings(ctx, env.owner, true, &label.ID)
+	account, err := env.svc.UpdateSettings(ctx, env.owner, &label.ID)
 	require.NoError(t, err)
-	require.True(t, account.DryRun)
+	require.Equal(t, label.ID, *account.DefaultLabelID)
 
 	due := env.now.Add(time.Hour)
 	chore := env.chore(t, "once", due)
@@ -259,7 +277,7 @@ func TestDefaultLabelFollowsStake(t *testing.T) {
 	require.Nil(t, stake)
 
 	// Clearing the default label means new stakes get none.
-	_, err = env.svc.UpdateSettings(ctx, env.owner, false, nil)
+	_, err = env.svc.UpdateSettings(ctx, env.owner, nil)
 	require.NoError(t, err)
 	require.NoError(t, env.svc.ApplyStakeChange(ctx, env.owner, chore.ID, &due, 500))
 	require.EqualValues(t, 0, labelCount())
@@ -336,19 +354,28 @@ func TestChargeSkip(t *testing.T) {
 func TestDryRun(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := context.Background()
-	env.link(t)
-	_, err := env.svc.UpdateSettings(ctx, env.owner, true, nil)
-	require.NoError(t, err)
+	account := env.link(t)
 	due := env.now.Add(time.Hour)
 	chore := env.chore(t, "once", due)
-	_, err = env.svc.PlaceStake(ctx, env.owner, chore.ID, &due, 100)
+	_, err := env.svc.PlaceStake(ctx, env.owner, chore.ID, &due, 100)
 	require.NoError(t, err)
 
+	// The server's dry_run setting covers every account.
+	env.svc.cfg.DryRun = true
 	require.NoError(t, env.svc.ChargeSkip(ctx, chore.ID, chore.Name))
 	require.Equal(t, "true", env.fake.lastCharge().Get("dryrun"))
+
+	// So does an account's dry_run column, which only the server can set.
+	env.svc.cfg.DryRun = false
+	require.NoError(t, env.db.Model(&BeeminderAccount{}).Where("id = ?", account.ID).Update("dry_run", true).Error)
+	require.NoError(t, env.svc.ChargeSkip(ctx, chore.ID, chore.Name))
+	require.Equal(t, "true", env.fake.lastCharge().Get("dryrun"))
+
 	rows := env.chargeRows(t, chore.ID)
-	require.Len(t, rows, 1)
-	require.Contains(t, rows[0].Message, "[dry run]")
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.Contains(t, row.Message, "[dry run]")
+	}
 }
 
 func TestSchedulerChargesOverduePeriodOnce(t *testing.T) {

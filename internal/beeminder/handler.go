@@ -21,37 +21,31 @@ func NewHandler(svc *Service) *Handler {
 }
 
 // accountResponse is what the settings page and the task editors read.
-// Username is the Beeminder username; it is only filled when the request
-// asked Beeminder for it (?live=true) or just linked the token.
+// Username is the linked Beeminder username. TokenValid is only set when the
+// request checked the token with Beeminder (?live=true, or just linked it).
+// DryRun is read-only: the server decides it (see Service.DryRun).
 type accountResponse struct {
 	Username          *string `json:"username"`
 	TokenValid        *bool   `json:"tokenValid"`
 	Deadbeat          bool    `json:"deadbeat"`
 	DryRun            bool    `json:"dryRun"`
-	ServerDryRun      bool    `json:"serverDryRun"`
 	DefaultLabelID    *int    `json:"defaultLabelId"`
 	EditWindowSeconds int     `json:"editWindowSeconds"`
 	MinAmountCents    int     `json:"minAmountCents"`
 	MaxAmountCents    int     `json:"maxAmountCents"`
 }
 
-func (h *Handler) toResponse(account *BeeminderAccount, me *User) accountResponse {
-	resp := accountResponse{
+func (h *Handler) toResponse(account *BeeminderAccount, tokenValid *bool) accountResponse {
+	return accountResponse{
+		Username:          account.Username,
+		TokenValid:        tokenValid,
 		Deadbeat:          account.Deadbeat,
-		DryRun:            account.DryRun,
-		ServerDryRun:      h.svc.ServerDryRun(),
+		DryRun:            h.svc.DryRun(account),
 		DefaultLabelID:    account.DefaultLabelID,
 		EditWindowSeconds: int(h.svc.EditWindow().Seconds()),
 		MinAmountCents:    MinAmountCents,
 		MaxAmountCents:    h.svc.MaxAmountCents(),
 	}
-	if me != nil {
-		username := me.Username
-		valid := true
-		resp.Username = &username
-		resp.TokenValid = &valid
-	}
-	return resp
 }
 
 func (h *Handler) getAccount(c *gin.Context) {
@@ -61,7 +55,7 @@ func (h *Handler) getAccount(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
 		return
 	}
-	account, err := h.svc.GetAccount(c, user.Username)
+	account, err := h.svc.GetAccount(c, user.ID)
 	if err != nil {
 		logger.Errorw("Failed to load Beeminder account", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Beeminder account"})
@@ -72,20 +66,22 @@ func (h *Handler) getAccount(c *gin.Context) {
 		return
 	}
 
-	resp := h.toResponse(account, nil)
+	var tokenValid *bool
 	if c.Query("live") == "true" {
-		me, err := h.svc.BeeminderUser(c, account)
+		// Also refreshes the stored deadbeat flag.
+		_, err := h.svc.BeeminderUser(c, account)
 		switch {
 		case err == nil:
-			resp = h.toResponse(account, me)
+			valid := true
+			tokenValid = &valid
 		case errors.Is(err, ErrInvalidToken):
 			valid := false
-			resp.TokenValid = &valid
+			tokenValid = &valid
 		default:
 			logger.Warnw("Couldn't reach Beeminder", "error", err)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"res": resp})
+	c.JSON(http.StatusOK, gin.H{"res": h.toResponse(account, tokenValid)})
 }
 
 type linkAccountReq struct {
@@ -105,7 +101,7 @@ func (h *Handler) linkAccount(c *gin.Context) {
 		return
 	}
 
-	account, me, err := h.svc.LinkAccount(c, &user.User, req.AuthToken)
+	account, _, err := h.svc.LinkAccount(c, &user.User, req.AuthToken)
 	if err != nil {
 		var validation *ValidationError
 		switch {
@@ -119,11 +115,13 @@ func (h *Handler) linkAccount(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"res": h.toResponse(account, me)})
+	valid := true // Beeminder just accepted the token
+	c.JSON(http.StatusOK, gin.H{"res": h.toResponse(account, &valid)})
 }
 
+// settingsReq holds what a user may change. Dry run isn't here on purpose:
+// only the server decides it.
 type settingsReq struct {
-	DryRun         bool `json:"dryRun"`
 	DefaultLabelID *int `json:"defaultLabelId"`
 }
 
@@ -139,7 +137,7 @@ func (h *Handler) updateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
-	account, err := h.svc.UpdateSettings(c, &user.User, req.DryRun, req.DefaultLabelID)
+	account, err := h.svc.UpdateSettings(c, &user.User, req.DefaultLabelID)
 	if err != nil {
 		status := StatusCode(err)
 		if status == http.StatusInternalServerError {

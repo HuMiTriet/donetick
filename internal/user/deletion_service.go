@@ -403,11 +403,12 @@ func (s *DeletionService) countUserTombstones(tx *gorm.DB, userID int) (int, err
 }
 
 // Beeminder: charges and stakes on the user's chores, stakes placed through
-// the user's Beeminder account, and the account itself (linked by username).
+// the user's Beeminder account, and the account itself (linked by
+// done_tick_user_id).
 const (
 	beeminderChargesWhere  = "chore_id IN (SELECT id FROM chores WHERE created_by = ?)"
-	beeminderStakesWhere   = "chore_id IN (SELECT id FROM chores WHERE created_by = ?) OR account_id IN (SELECT id FROM beeminder_accounts WHERE username = (SELECT username FROM users WHERE id = ?))"
-	beeminderAccountsWhere = "username = (SELECT username FROM users WHERE id = ?)"
+	beeminderStakesWhere   = "chore_id IN (SELECT id FROM chores WHERE created_by = ?) OR account_id IN (SELECT id FROM beeminder_accounts WHERE done_tick_user_id = ?)"
+	beeminderAccountsWhere = "done_tick_user_id = ?"
 )
 
 func (s *DeletionService) deleteBeeminderCharges(tx *gorm.DB, userID int) (int, error) {
