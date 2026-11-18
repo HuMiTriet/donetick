@@ -49,6 +49,7 @@ const (
 type Chore struct {
 	CompletionActions      []CompletionAction         `json:"completionActions" gorm:"serializer:json;type:json"`
 	ID                     int                        `json:"id" gorm:"primary_key"`
+	EstimatedDuration      *int                       `json:"estimatedDuration,omitempty" gorm:"column:estimated_duration"`
 	Name                   string                     `json:"name" gorm:"column:name"`                                                                // Chore description
 	FrequencyType          FrequencyType              `json:"frequencyType" gorm:"column:frequency_type"`                                             // "daily", "weekly", "monthly", "yearly", "adaptive",or "custom"
 	Frequency              int                        `json:"frequency" gorm:"column:frequency"`                                                      // Number of days, weeks, months, or years between chores

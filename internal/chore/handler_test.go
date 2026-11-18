@@ -278,3 +278,39 @@ func TestUpdateSubtaskCompletedAtBumpsChoreSyncVersion(t *testing.T) {
 	require.NoError(t, db.First(&updatedChore, chore.ID).Error)
 	require.Greater(t, updatedChore.SyncVersion, chore.SyncVersion)
 }
+
+func TestEditChoreWithoutEstimatedDurationKeepsIt(t *testing.T) {
+	router, db := newEditChoreTestRouter(t)
+	chore := chModel.Chore{Name: "write report", FrequencyType: chModel.FrequencyTypeOnce,
+		AssignStrategy: chModel.AssignmentStrategyRandom, CircleID: 1, CreatedBy: 1, IsActive: true,
+		EstimatedDuration: intPtr(2700)}
+	require.NoError(t, db.Create(&chore).Error)
+
+	edit := func(body map[string]any) {
+		t.Helper()
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/chores", bytes.NewReader(raw)))
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	body := map[string]any{
+		"id":             chore.ID,
+		"name":           "write the report",
+		"frequencyType":  chModel.FrequencyTypeOnce,
+		"assignStrategy": chModel.AssignmentStrategyRandom,
+		"labelsV2":       []map[string]int{},
+	}
+
+	edit(body)
+	var updated chModel.Chore
+	require.NoError(t, db.First(&updated, chore.ID).Error)
+	require.Equal(t, "write the report", updated.Name)
+	require.NotNil(t, updated.EstimatedDuration)
+	require.Equal(t, 2700, *updated.EstimatedDuration)
+
+	body["estimatedDuration"] = 900
+	edit(body)
+	require.NoError(t, db.First(&updated, chore.ID).Error)
+	require.Equal(t, 900, *updated.EstimatedDuration)
+}

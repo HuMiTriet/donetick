@@ -3,3 +3,5 @@ donetick.db
 *.exe
 config/prod.yaml
 config/selfhosted.yaml
+/donetick.db-shm
+/donetick.db-wal

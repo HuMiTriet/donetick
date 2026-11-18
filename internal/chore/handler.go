@@ -322,6 +322,7 @@ type ChoreReq struct {
 	UpdatedAt            *time.Time                    `json:"updatedAt"`
 	Priority             *int                          `json:"priority" binding:"omitempty"`
 	CompletionWindow     *int                          `json:"completionWindow" binding:"omitempty"`
+	EstimatedDuration    *int                          `json:"estimatedDuration" binding:"omitempty,min=0"`
 	Points               *int                          `json:"points" binding:"omitempty"`
 	Description          *string                       `json:"description" binding:"omitempty"`
 	SubTasks             *[]stModel.SubTask            `json:"subTasks" binding:"omitempty,dive"`
@@ -541,6 +542,7 @@ func (h *Handler) CreateChore(c *gin.Context) {
 		CircleID:               currentUser.CircleID,
 		Points:                 choreReq.Points,
 		CompletionWindow:       choreReq.CompletionWindow,
+		EstimatedDuration:      choreReq.EstimatedDuration,
 		Description:            choreReq.Description,
 		Priority:               *choreReq.Priority,
 		RequireApproval:        choreReq.RequireApproval,
@@ -848,6 +850,7 @@ func (h *Handler) EditChore(c *gin.Context) {
 		CreatedAt:              oldChore.CreatedAt,
 		Points:                 choreReq.Points,
 		CompletionWindow:       choreReq.CompletionWindow,
+		EstimatedDuration:      choreReq.EstimatedDuration,
 		Description:            choreReq.Description,
 		Priority:               *choreReq.Priority,
 		RequireApproval:        choreReq.RequireApproval,
@@ -974,6 +977,10 @@ func setEditChoreDefaults(choreReq *ChoreReq, oldChore *chModel.Chore) {
 
 	if choreReq.IsPrivate == nil {
 		choreReq.IsPrivate = &oldChore.IsPrivate
+	}
+
+	if choreReq.EstimatedDuration == nil {
+		choreReq.EstimatedDuration = oldChore.EstimatedDuration
 	}
 }
 
