@@ -314,3 +314,50 @@ func TestEditChoreWithoutEstimatedDurationKeepsIt(t *testing.T) {
 	require.NoError(t, db.First(&updated, chore.ID).Error)
 	require.Equal(t, 900, *updated.EstimatedDuration)
 }
+
+func editChoreDueDate(t *testing.T, includeKey bool, value any) *time.Time {
+	t.Helper()
+	router, db := newEditChoreTestRouter(t)
+	due := time.Date(2026, 11, 19, 15, 0, 0, 0, time.UTC)
+	chore := chModel.Chore{Name: "pay rent", FrequencyType: chModel.FrequencyTypeOnce,
+		AssignStrategy: chModel.AssignmentStrategyRandom, CircleID: 1, CreatedBy: 1, IsActive: true,
+		NextDueDate: &due}
+	require.NoError(t, db.Create(&chore).Error)
+
+	body := map[string]any{
+		"id":             chore.ID,
+		"name":           "pay rent",
+		"frequencyType":  chModel.FrequencyTypeOnce,
+		"assignStrategy": chModel.AssignmentStrategyRandom,
+		"labelsV2":       []map[string]int{},
+	}
+	if includeKey {
+		body["nextDueDate"] = value
+	}
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/chores", bytes.NewReader(raw)))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	var updated chModel.Chore
+	require.NoError(t, db.First(&updated, chore.ID).Error)
+	return updated.NextDueDate
+}
+
+func TestEditChoreNullNextDueDateClearsIt(t *testing.T) {
+	require.Nil(t, editChoreDueDate(t, true, nil))
+}
+
+func TestEditChoreWithoutNextDueDateKeepsIt(t *testing.T) {
+	kept := editChoreDueDate(t, false, nil)
+	require.NotNil(t, kept)
+	require.True(t, kept.Equal(time.Date(2026, 11, 19, 15, 0, 0, 0, time.UTC)))
+}
+
+func TestEditChoreNewNextDueDateReplacesIt(t *testing.T) {
+	next := time.Date(2026, 11, 21, 9, 30, 0, 0, time.UTC)
+	updated := editChoreDueDate(t, true, next)
+	require.NotNil(t, updated)
+	require.True(t, updated.Equal(next))
+}

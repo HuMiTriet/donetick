@@ -2,6 +2,7 @@ package chore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -331,6 +332,22 @@ type ChoreReq struct {
 	ProjectID            *int                          `json:"projectId" binding:"omitempty"`
 	ThingTrigger         *tModel.ThingTrigger          `json:"thingTrigger"`
 	DraftId              *string                       `json:"draftId,omitempty"`
+	NextDueDateSet       bool                          `json:"-"`
+}
+
+func (r *ChoreReq) UnmarshalJSON(data []byte) error {
+	type choreReqFields ChoreReq
+	var fields choreReqFields
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return err
+	}
+	*r = ChoreReq(fields)
+	_, r.NextDueDateSet = keys["nextDueDate"]
+	return nil
 }
 
 type ActionOptions struct {
@@ -825,7 +842,7 @@ func (h *Handler) EditChore(c *gin.Context) {
 	if choreReq.NextDueDate != nil {
 		utcDate := choreReq.NextDueDate.UTC()
 		dueDate = &utcDate
-	} else {
+	} else if !choreReq.NextDueDateSet {
 		dueDate = oldChore.NextDueDate
 	}
 
